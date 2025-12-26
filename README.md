@@ -18,25 +18,6 @@ This package provides Kotlin bindings for ailia LLM that call JNI directly from 
 - Kotlin 1.8.22
 - JDK 1.8
 
-### Building
-
-```bash
-python build.py
-```
-
-### Running Examples
-
-```bash
-# Run text example
-python run_examples.py text --model path/to/model.gguf
-
-# Run multimodal example
-python run_examples.py multimodal
-
-# Run tests
-python test.py
-```
-
 ### Usage
 
 ```kotlin
