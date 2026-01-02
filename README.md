@@ -49,4 +49,4 @@ AiliaLLM().use { llm ->
 
 ## API specification
 
-https://github.com/axinc-ai/ailia-sdk
+https://github.com/ailia-ai/ailia-sdk
