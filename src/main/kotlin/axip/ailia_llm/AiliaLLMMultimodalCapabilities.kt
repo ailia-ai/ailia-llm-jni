@@ -1,4 +1,4 @@
-package ai.ailia.llm
+package axip.ailia_llm
 
 /**
  * Represents the multimodal capabilities of a loaded LLM model.

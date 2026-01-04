@@ -1,4 +1,4 @@
-package ai.ailia.llm
+package axip.ailia_llm
 
 import java.io.Closeable
 

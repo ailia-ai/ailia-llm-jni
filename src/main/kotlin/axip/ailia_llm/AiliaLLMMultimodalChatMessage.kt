@@ -1,4 +1,4 @@
-package ai.ailia.llm
+package axip.ailia_llm
 
 /**
  * Represents a multimodal chat message with media attachments.

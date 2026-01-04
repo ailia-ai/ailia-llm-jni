@@ -1,4 +1,4 @@
-package ai.ailia.llm
+package axip.ailia_llm
 
 /**
  * Represents a chat message for AiliaLLM.

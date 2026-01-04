@@ -1,4 +1,4 @@
-package ai.ailia.llm
+package axip.ailia_llm
 
 /**
  * Represents media data (image or audio) for multimodal LLM processing.
