@@ -271,6 +271,7 @@ class AiliaLLM : Closeable {
         const val AILIA_LLM_STATUS_THREAD_ERROR = -6
         const val AILIA_LLM_STATUS_INVALID_STATE = -7
         const val AILIA_LLM_STATUS_CONTEXT_FULL = -8
+        const val AILIA_LLM_STATUS_ERROR_BUFFER_API = -9
         const val AILIA_LLM_STATUS_UNIMPLEMENTED = -15
         const val AILIA_LLM_STATUS_OTHER_ERROR = -128
 
