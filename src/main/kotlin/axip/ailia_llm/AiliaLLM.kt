@@ -82,10 +82,44 @@ class AiliaLLM : Closeable {
      * @throws RuntimeException if the operation fails or model not loaded
      */
     fun setPrompt(messages: Array<AiliaLLMChatMessage>) {
+        val multimodalMessages = messages.map { msg ->
+            AiliaLLMMultimodalChatMessage(msg.role, msg.content, null)
+        }.toTypedArray()
+        setPromptInternal(multimodalMessages)
+    }
+
+    /**
+     * Sets the prompt for generation with multimodal support.
+     * Automatically detects whether to use text-only or multimodal processing
+     * based on the presence of media data.
+     *
+     * @param messages Array of multimodal chat messages
+     * @throws RuntimeException if the operation fails or model not loaded
+     */
+    fun setPrompt(messages: Array<AiliaLLMMultimodalChatMessage>) {
+        setPromptInternal(messages)
+    }
+
+    /**
+     * Internal implementation for setting prompts.
+     * Automatically routes to text-only or multimodal processing based on media data presence.
+     */
+    private fun setPromptInternal(messages: Array<AiliaLLMMultimodalChatMessage>) {
         checkModelLoaded()
-        val status = ailiaLLMSetPrompt(nativeHandle, messages, messages.size)
-        if (status != AILIA_LLM_STATUS_SUCCESS) {
-            throw RuntimeException("Failed to set prompt. Status: $status")
+        val hasMediaData = messages.any { it.mediaData?.isNotEmpty() == true }
+
+        if (hasMediaData) {
+            checkMultimodalProjectorLoaded()
+            val status = ailiaLLMSetMultimodalPrompt(nativeHandle, messages, messages.size)
+            if (status != AILIA_LLM_STATUS_SUCCESS) {
+                throw RuntimeException("Failed to set multimodal prompt. Status: $status")
+            }
+        } else {
+            val textMessages = messages.map { AiliaLLMChatMessage(it.role, it.content) }.toTypedArray()
+            val status = ailiaLLMSetPrompt(nativeHandle, textMessages, textMessages.size)
+            if (status != AILIA_LLM_STATUS_SUCCESS) {
+                throw RuntimeException("Failed to set prompt. Status: $status")
+            }
         }
         promptSet = true
     }
@@ -196,22 +230,6 @@ class AiliaLLM : Closeable {
             visionSupport = visionSupport[0] != 0,
             audioSupport = audioSupport[0] != 0
         )
-    }
-
-    /**
-     * Sets the multimodal prompt for generation with media attachments.
-     * Use <__media__> placeholders in message content to reference media files.
-     *
-     * @param messages Array of multimodal chat messages
-     * @throws RuntimeException if the operation fails or projector not loaded
-     */
-    fun setMultimodalPrompt(messages: Array<AiliaLLMMultimodalChatMessage>) {
-        checkMultimodalProjectorLoaded()
-        val status = ailiaLLMSetMultimodalPrompt(nativeHandle, messages, messages.size)
-        if (status != AILIA_LLM_STATUS_SUCCESS) {
-            throw RuntimeException("Failed to set multimodal prompt. Status: $status")
-        }
-        promptSet = true
     }
 
     /**
