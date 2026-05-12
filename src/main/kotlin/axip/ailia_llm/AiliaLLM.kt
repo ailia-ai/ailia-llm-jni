@@ -76,22 +76,6 @@ class AiliaLLM : Closeable {
     }
 
     /**
-     * Enable or disable thinking (reasoning output).
-     * Controls whether thinking models (e.g. Gemma4) output their reasoning process.
-     * Must be called before setPrompt.
-     *
-     * @param enable true to enable thinking, false to disable (default: disabled)
-     * @throws RuntimeException if the operation fails or model not loaded
-     */
-    fun setThinking(enable: Boolean) {
-        checkModelLoaded()
-        val status = ailiaLLMSetThinking(nativeHandle, if (enable) 1 else 0)
-        if (status != AILIA_LLM_STATUS_SUCCESS) {
-            throw RuntimeException("Failed to set thinking. Status: $status")
-        }
-    }
-
-    /**
      * Sets the prompt for generation.
      *
      * @param messages Array of chat messages
@@ -374,7 +358,6 @@ class AiliaLLM : Closeable {
     private external fun ailiaLLMOpenModelFileA(handle: Long, path: String, nCtx: Int): Int
     private external fun ailiaLLMGetContextSize(handle: Long, size: IntArray): Int
     private external fun ailiaLLMSetSamplingParams(handle: Long, topK: Int, topP: Float, temp: Float, seed: Int): Int
-    private external fun ailiaLLMSetThinking(handle: Long, enable: Int): Int
     private external fun ailiaLLMSetPrompt(handle: Long, messages: Array<AiliaLLMChatMessage>, messageCount: Int): Int
     private external fun ailiaLLMGenerate(handle: Long, done: IntArray): Int
     private external fun ailiaLLMGetDeltaTextSize(handle: Long, size: IntArray): Int
