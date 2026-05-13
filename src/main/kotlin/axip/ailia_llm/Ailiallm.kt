@@ -84,7 +84,6 @@ class AiliaLLM : Closeable {
      * @throws RuntimeException if the operation fails or model not loaded
      */
     fun setThinking(enable: Boolean) {
-        checkModelLoaded()
         val status = ailiaLLMSetThinking(nativeHandle, if (enable) 1 else 0)
         if (status != AILIA_LLM_STATUS_SUCCESS) {
             throw RuntimeException("Failed to set thinking. Status: $status")
