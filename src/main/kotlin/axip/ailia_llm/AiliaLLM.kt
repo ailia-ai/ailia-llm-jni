@@ -140,6 +140,64 @@ class AiliaLLM : Closeable {
     }
 
     /**
+     * Sets the tool (function) definitions for tool use (function calling).
+     * The tools are rendered into the prompt through the chat template on the next
+     * setPrompt call, the output is constrained to the tool call syntax, and the
+     * raw output can be converted into tool calls with parseResponse().
+     *
+     * While tools are set, the messages passed to setPrompt are interpreted as follows:
+     * - role "assistant": the raw model output (concatenation of getDeltaText()) as is. It is parsed
+     *   internally; a RuntimeException is thrown if it does not match the tool call syntax (PARSE_ERROR).
+     * - role "tool": the tool result as content (text or a JSON string), matched to the tool calls of
+     *   the preceding assistant message by order
+     * A "tool" message while no tools are set throws a RuntimeException (INVALID_STATE).
+     *
+     * Available for models whose chat template supports tool calling (e.g. Gemma 4).
+     *
+     * @param toolsJson OpenAI-compatible JSON array of tool definitions, e.g.
+     *   [{"type":"function","function":{"name":"get_weather","description":"...","parameters":{...}}}]
+     *   Pass null or an empty string to clear the tools.
+     * @throws RuntimeException if the JSON is invalid or the operation fails
+     */
+    fun setTools(toolsJson: String?) {
+        val status = ailiaLLMSetTools(nativeHandle, toolsJson)
+        if (status != AILIA_LLM_STATUS_SUCCESS) {
+            throw RuntimeException("Failed to set tools. Status: $status")
+        }
+    }
+
+    /**
+     * Parses the raw model output into an OpenAI-compatible assistant message JSON:
+     * {"role":"assistant","content":"...","reasoning_content":"...","tool_calls":[{"id":"call_0","type":"function","function":{"name":"...","arguments":"{...}"}}]}
+     * reasoning_content is present only when the text contains thinking output, and tool_calls only when
+     * it contains tool calls. arguments is a JSON string.
+     * The parser is built by setPrompt(): calling this before setPrompt(), or after setTools() / setThinking()
+     * without a new setPrompt(), fails with INVALID_STATE. A text that does not match the tool call syntax
+     * (e.g. an unfinished output) fails with PARSE_ERROR.
+     *
+     * @param text The raw model output, i.e. the concatenation of getDeltaText() until the generation is complete
+     * @return The assistant message JSON
+     * @throws RuntimeException if the operation fails or model not loaded
+     */
+    fun parseResponse(text: String): String {
+        checkModelLoaded()
+        val size = IntArray(1)
+        var status = ailiaLLMParseResponseSize(nativeHandle, text, size)
+        if (status != AILIA_LLM_STATUS_SUCCESS) {
+            throw RuntimeException("Failed to get parsed response size. Status: $status")
+        }
+
+        val buffer = ByteArray(size[0])
+        status = ailiaLLMParseResponse(nativeHandle, text, buffer, size[0])
+        if (status != AILIA_LLM_STATUS_SUCCESS) {
+            throw RuntimeException("Failed to parse response. Status: $status")
+        }
+
+        // Convert byte array to string (UTF-8), excluding null terminator
+        return String(buffer, 0, size[0] - 1, Charsets.UTF_8)
+    }
+
+    /**
      * Generates one token.
      *
      * @return true if generation is done, false otherwise
@@ -305,6 +363,7 @@ class AiliaLLM : Closeable {
         const val AILIA_LLM_STATUS_INVALID_STATE = -7
         const val AILIA_LLM_STATUS_CONTEXT_FULL = -8
         const val AILIA_LLM_STATUS_ERROR_BUFFER_API = -9
+        const val AILIA_LLM_STATUS_PARSE_ERROR = -10
         const val AILIA_LLM_STATUS_UNIMPLEMENTED = -15
         const val AILIA_LLM_STATUS_OTHER_ERROR = -128
 
@@ -375,6 +434,9 @@ class AiliaLLM : Closeable {
     private external fun ailiaLLMSetSamplingParams(handle: Long, topK: Int, topP: Float, temp: Float, seed: Int): Int
     private external fun ailiaLLMSetThinking(handle: Long, enable: Int): Int
     private external fun ailiaLLMSetPrompt(handle: Long, messages: Array<AiliaLLMChatMessage>, messageCount: Int): Int
+    private external fun ailiaLLMSetTools(handle: Long, toolsJson: String?): Int
+    private external fun ailiaLLMParseResponseSize(handle: Long, text: String, size: IntArray): Int
+    private external fun ailiaLLMParseResponse(handle: Long, text: String, buffer: ByteArray, bufSize: Int): Int
     private external fun ailiaLLMGenerate(handle: Long, done: IntArray): Int
     private external fun ailiaLLMGetDeltaTextSize(handle: Long, size: IntArray): Int
     private external fun ailiaLLMGetDeltaText(handle: Long, buffer: ByteArray, bufSize: Int): Int
