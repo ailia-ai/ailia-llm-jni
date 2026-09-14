@@ -140,6 +140,52 @@ class AiliaLLM : Closeable {
     }
 
     /**
+     * Sets the tool (function) definitions for tool use (function calling).
+     * The tools are rendered into the prompt through the chat template on the next
+     * setPrompt call, the output is constrained to the tool call syntax, and the
+     * buffered output can be retrieved with getResponseJson().
+     *
+     * While tools are set, setPrompt fails with INVALID_STATE. Use setPromptJson
+     * from the first turn and retrieve the assistant with getResponseJson().
+     * Delta text remains available for optional streaming previews.
+     *
+     * Available for models whose chat template supports tool calling (e.g. Gemma 4).
+     *
+     * @param toolsJson OpenAI-compatible JSON array of tool definitions, e.g.
+     *   [{"type":"function","function":{"name":"get_weather","description":"...","parameters":{...}}}]
+     *   Pass null or an empty string to clear the tools.
+     * @throws RuntimeException if the JSON is invalid or the operation fails
+     */
+    fun setTools(toolsJson: String?) {
+        val status = ailiaLLMSetTools(nativeHandle, toolsJson)
+        if (status != AILIA_LLM_STATUS_SUCCESS) {
+            throw RuntimeException("Failed to set tools. Status: $status")
+        }
+    }
+
+    /** Sets structured history; required with tools. User content arrays accept
+     * text and image/audio parts with file_path or base64 data. Load a projector for media.
+     */
+    fun setPromptJson(messagesJson: String) {
+        checkModelLoaded()
+        val status = ailiaLLMSetPromptJson(nativeHandle, messagesJson.toByteArray(Charsets.UTF_8))
+        if (status != AILIA_LLM_STATUS_SUCCESS) throw RuntimeException("SetPromptJson failed: $status")
+        promptSet = true
+    }
+
+    /** Gets buffered assistant JSON. Deltas need not be accumulated by the caller. */
+    fun getResponseJson(): String {
+        checkPromptSet()
+        val size = IntArray(1)
+        var status = ailiaLLMGetResponseJsonSize(nativeHandle, size)
+        if (status != AILIA_LLM_STATUS_SUCCESS) throw RuntimeException("GetResponseJsonSize failed: $status")
+        val buffer = ByteArray(size[0])
+        status = ailiaLLMGetResponseJson(nativeHandle, buffer, size[0])
+        if (status != AILIA_LLM_STATUS_SUCCESS) throw RuntimeException("GetResponseJson failed: $status")
+        return String(buffer, 0, size[0] - 1, Charsets.UTF_8)
+    }
+
+    /**
      * Generates one token.
      *
      * @return true if generation is done, false otherwise
@@ -305,6 +351,7 @@ class AiliaLLM : Closeable {
         const val AILIA_LLM_STATUS_INVALID_STATE = -7
         const val AILIA_LLM_STATUS_CONTEXT_FULL = -8
         const val AILIA_LLM_STATUS_ERROR_BUFFER_API = -9
+        const val AILIA_LLM_STATUS_PARSE_ERROR = -10
         const val AILIA_LLM_STATUS_UNIMPLEMENTED = -15
         const val AILIA_LLM_STATUS_OTHER_ERROR = -128
 
@@ -374,7 +421,11 @@ class AiliaLLM : Closeable {
     private external fun ailiaLLMGetContextSize(handle: Long, size: IntArray): Int
     private external fun ailiaLLMSetSamplingParams(handle: Long, topK: Int, topP: Float, temp: Float, seed: Int): Int
     private external fun ailiaLLMSetThinking(handle: Long, enable: Int): Int
+    private external fun ailiaLLMSetPromptJson(handle: Long, messagesJson: ByteArray): Int
+    private external fun ailiaLLMGetResponseJsonSize(handle: Long, size: IntArray): Int
+    private external fun ailiaLLMGetResponseJson(handle: Long, buffer: ByteArray, size: Int): Int
     private external fun ailiaLLMSetPrompt(handle: Long, messages: Array<AiliaLLMChatMessage>, messageCount: Int): Int
+    private external fun ailiaLLMSetTools(handle: Long, toolsJson: String?): Int
     private external fun ailiaLLMGenerate(handle: Long, done: IntArray): Int
     private external fun ailiaLLMGetDeltaTextSize(handle: Long, size: IntArray): Int
     private external fun ailiaLLMGetDeltaText(handle: Long, buffer: ByteArray, bufSize: Int): Int
