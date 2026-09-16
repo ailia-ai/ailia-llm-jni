@@ -4,7 +4,7 @@ package axip.ailia_llm
  * Represents media data (image or audio) for multimodal LLM processing.
  * Corresponds to the AILIALLMMediaData C structure.
  *
- * @property mediaType Media type: "image" or "audio" (audio is reserved for future use)
+ * @property mediaType Media type: "image" or "audio"
  * @property filePath Path to the media file (UTF-8)
  * @property data Raw media data (currently unsupported, reserved for future use)
  * @property dataSize Size of the raw data

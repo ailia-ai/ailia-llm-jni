@@ -29,7 +29,7 @@ class AiliaLLM : Closeable {
     /**
      * Opens a model file.
      *
-     * @param path The path to the GGUF model file
+     * @param path The path to a GGUF model or a self-contained QNN (.qnn) model package
      * @param nCtx The context length (0 for model default)
      * @throws RuntimeException if the operation fails
      */
@@ -41,6 +41,7 @@ class AiliaLLM : Closeable {
         modelLoaded = true
         promptSet = false // Reset prompt state when loading a new model
     }
+
 
     /**
      * Gets the context size of the model.
@@ -188,7 +189,7 @@ class AiliaLLM : Closeable {
     /**
      * Generates one token.
      *
-     * @return true if generation is done, false otherwise
+     * @return true if generation is done, false otherwise. On completion, getDeltaText() returns an empty string.
      * @throws RuntimeException if the operation fails or prompt not set
      */
     fun generate(): Boolean {
@@ -261,12 +262,17 @@ class AiliaLLM : Closeable {
      * Opens a multimodal projector file for vision/audio support.
      * Must be called after openModelFile() to enable multimodal capabilities.
      *
-     * @param path The path to the MMPROJ file (GGUF format)
+     * @param path The path to a GGUF projector or a QNN (-mmproj.qnn) encoder package
      * @throws RuntimeException if the operation fails or model not loaded
      */
-    fun openMultimodalProjectorFile(path: String) {
+    fun openMultimodalProjectorFile(path: String, contextBinaryPath: String? = null) {
         checkModelLoaded()
-        val status = ailiaLLMOpenMultimodalProjectorFileA(nativeHandle, path)
+        val status = if (contextBinaryPath == null) {
+            ailiaLLMOpenMultimodalProjectorFileA(nativeHandle, path)
+        } else {
+            ailiaLLMOpenMultimodalProjectorFileWithContextBinaryA(
+                nativeHandle, path, contextBinaryPath)
+        }
         if (status != AILIA_LLM_STATUS_SUCCESS) {
             throw RuntimeException("Failed to open multimodal projector file: $path. Status: $status")
         }
@@ -402,6 +408,20 @@ class AiliaLLM : Closeable {
             return name[0] ?: throw RuntimeException("Backend name is null")
         }
 
+        /**
+         * Gets the canonical QNN model name for this device, such as "sm8475".
+         * The compiler emits `<name>.qnn` and `<name>-mmproj.qnn`.
+         */
+        @JvmStatic
+        fun getQNNModelName(): String {
+            val modelName = arrayOfNulls<String>(1)
+            val status = ailiaLLMGetQNNModelName(modelName)
+            if (status != AILIA_LLM_STATUS_SUCCESS) {
+                throw RuntimeException("Failed to get QNN model name. Status: $status")
+            }
+            return modelName[0] ?: throw RuntimeException("QNN model name is null")
+        }
+
         // Native methods - called directly from Kotlin
         @JvmStatic
         private external fun testJNI(): Int
@@ -411,6 +431,9 @@ class AiliaLLM : Closeable {
 
         @JvmStatic
         private external fun ailiaLLMGetBackendName(name: Array<String?>, index: Int): Int
+
+        @JvmStatic
+        private external fun ailiaLLMGetQNNModelName(modelName: Array<String?>): Int
 
         @JvmStatic
         private external fun ailiaLLMCreate(handle: LongArray): Int
@@ -433,6 +456,8 @@ class AiliaLLM : Closeable {
     private external fun ailiaLLMGetPromptTokenCount(handle: Long, count: IntArray): Int
     private external fun ailiaLLMDestroy(handle: Long)
     private external fun ailiaLLMOpenMultimodalProjectorFileA(handle: Long, path: String): Int
+    private external fun ailiaLLMOpenMultimodalProjectorFileWithContextBinaryA(
+        handle: Long, path: String, contextBinaryPath: String): Int
     private external fun ailiaLLMGetMultimodalCapabilities(handle: Long, visionSupport: IntArray, audioSupport: IntArray): Int
     private external fun ailiaLLMSetMultimodalPrompt(handle: Long, messages: Array<AiliaLLMMultimodalChatMessage>, messageCount: Int): Int
 }
