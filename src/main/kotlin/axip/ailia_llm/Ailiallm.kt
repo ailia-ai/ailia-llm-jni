@@ -17,6 +17,9 @@ class AiliaLLM : Closeable {
     private var promptSet = false
     private var multimodalProjectorLoaded = false
 
+    /** Detail of the last native error; valid until the next native operation. */
+    fun getErrorDetail(): String = ailiaLLMGetErrorDetail(nativeHandle)
+
     init {
         val handleArray = LongArray(1)
         val status = ailiaLLMCreate(handleArray)
@@ -26,10 +29,22 @@ class AiliaLLM : Closeable {
         nativeHandle = handleArray[0]
     }
 
+    /** Selects a backend returned by [getBackendCount] and [getBackendName].
+     * Must be called before [openModelFile]. HTP (QNN) accepts only .qnn;
+     * explicitly selected CPU/GPU backends reject .qnn. Without a selection,
+     * the model format determines the backend.
+     */
+    fun setBackend(index: Int) {
+        val status = ailiaLLMSetBackend(nativeHandle, index)
+        if (status != AILIA_LLM_STATUS_SUCCESS) {
+            throw RuntimeException("Failed to set backend $index. Status: $status")
+        }
+    }
+
     /**
      * Opens a model file.
      *
-     * @param path The path to the GGUF model file
+     * @param path The path to a GGUF model or a self-contained QNN (.qnn) model package
      * @param nCtx The context length (0 for model default)
      * @throws RuntimeException if the operation fails
      */
@@ -41,6 +56,7 @@ class AiliaLLM : Closeable {
         modelLoaded = true
         promptSet = false // Reset prompt state when loading a new model
     }
+
 
     /**
      * Gets the context size of the model.
@@ -140,9 +156,56 @@ class AiliaLLM : Closeable {
     }
 
     /**
+     * Sets the tool (function) definitions for tool use (function calling).
+     * The tools are rendered into the prompt through the chat template on the next
+     * setPromptJson call, the output is constrained to the tool call syntax, and the
+     * buffered output can be retrieved with getResponseJson().
+     *
+     * While tools are set, setPrompt fails with INVALID_STATE. Use setPromptJson
+     * from the first turn and retrieve the assistant with getResponseJson().
+     * Delta text remains available for optional streaming previews.
+     *
+     * Available for models whose chat template supports tool calling (e.g. Gemma 4).
+     *
+     * @param toolsJson OpenAI-compatible JSON array of tool definitions, e.g.
+     *   [{"type":"function","function":{"name":"get_weather","description":"...","parameters":{...}}}]
+     *   Pass null or an empty string to clear the tools.
+     * @throws RuntimeException if the JSON is invalid or the operation fails
+     */
+    fun setTools(toolsJson: String?) {
+        val status = ailiaLLMSetTools(nativeHandle, toolsJson)
+        if (status != AILIA_LLM_STATUS_SUCCESS) {
+            throw RuntimeException("Failed to set tools. Status: $status")
+        }
+    }
+
+    /** Sets structured history; required with tools. User content arrays accept
+     * text and image or audio parts with file_path or base64 data. Load a
+     * matching projector for media. Submit image and audio in separate prompts.
+     */
+    fun setPromptJson(messagesJson: String) {
+        checkModelLoaded()
+        val status = ailiaLLMSetPromptJson(nativeHandle, messagesJson.toByteArray(Charsets.UTF_8))
+        if (status != AILIA_LLM_STATUS_SUCCESS) throw RuntimeException("SetPromptJson failed: $status")
+        promptSet = true
+    }
+
+    /** Gets buffered assistant JSON. Deltas need not be accumulated by the caller. */
+    fun getResponseJson(): String {
+        checkPromptSet()
+        val size = IntArray(1)
+        var status = ailiaLLMGetResponseJsonSize(nativeHandle, size)
+        if (status != AILIA_LLM_STATUS_SUCCESS) throw RuntimeException("GetResponseJsonSize failed: $status")
+        val buffer = ByteArray(size[0])
+        status = ailiaLLMGetResponseJson(nativeHandle, buffer, size[0])
+        if (status != AILIA_LLM_STATUS_SUCCESS) throw RuntimeException("GetResponseJson failed: $status")
+        return String(buffer, 0, size[0] - 1, Charsets.UTF_8)
+    }
+
+    /**
      * Generates one token.
      *
-     * @return true if generation is done, false otherwise
+     * @return true if generation is done, false otherwise. On completion, getDeltaText() returns an empty string.
      * @throws RuntimeException if the operation fails or prompt not set
      */
     fun generate(): Boolean {
@@ -215,7 +278,7 @@ class AiliaLLM : Closeable {
      * Opens a multimodal projector file for vision/audio support.
      * Must be called after openModelFile() to enable multimodal capabilities.
      *
-     * @param path The path to the MMPROJ file (GGUF format)
+     * @param path The path to a GGUF projector or a QNN (-mmproj.qnn) encoder package
      * @throws RuntimeException if the operation fails or model not loaded
      */
     fun openMultimodalProjectorFile(path: String) {
@@ -305,6 +368,7 @@ class AiliaLLM : Closeable {
         const val AILIA_LLM_STATUS_INVALID_STATE = -7
         const val AILIA_LLM_STATUS_CONTEXT_FULL = -8
         const val AILIA_LLM_STATUS_ERROR_BUFFER_API = -9
+        const val AILIA_LLM_STATUS_PARSE_ERROR = -10
         const val AILIA_LLM_STATUS_UNIMPLEMENTED = -15
         const val AILIA_LLM_STATUS_OTHER_ERROR = -128
 
@@ -323,7 +387,8 @@ class AiliaLLM : Closeable {
         }
 
         /**
-         * Gets the number of available backends (CPU, GPU).
+         * Gets the number of available backends (GPU, CPU, HTP (QNN)).
+         * HTP appears only when a compatible QNN runtime is available.
          *
          * @return The number of backends
          * @throws RuntimeException if the operation fails
@@ -355,6 +420,34 @@ class AiliaLLM : Closeable {
             return name[0] ?: throw RuntimeException("Backend name is null")
         }
 
+        /**
+         * Gets the canonical QNN model name for this device, such as "sm8475".
+         * The compiler emits `<name>.qnn` and `<name>-mmproj.qnn`.
+         * Distributed filenames may include a model prefix; select matching
+         * text and projector packages for the same SoC and model.
+         * When the QNN runtime libraries are bundled in the APK's native library
+         * directory, no QNN or ADSP library-path environment variable is required.
+         */
+        @JvmStatic
+        fun getQNNModelName(): String {
+            val modelName = arrayOfNulls<String>(1)
+            val status = ailiaLLMGetQNNModelName(modelName)
+            if (status != AILIA_LLM_STATUS_SUCCESS) {
+                throw RuntimeException("Failed to get QNN model name. Status: $status")
+            }
+            return modelName[0] ?: throw RuntimeException("QNN model name is null")
+        }
+
+        @JvmStatic
+        fun getBackendDeviceName(index: Int): String {
+            val name = arrayOfNulls<String>(1)
+            val status = ailiaLLMGetBackendDeviceName(name, index)
+            if (status != AILIA_LLM_STATUS_SUCCESS) {
+                throw RuntimeException("Failed to get backend device name. Status: $status")
+            }
+            return name[0] ?: throw RuntimeException("Backend device name is null")
+        }
+
         // Native methods - called directly from Kotlin
         @JvmStatic
         private external fun testJNI(): Int
@@ -366,15 +459,26 @@ class AiliaLLM : Closeable {
         private external fun ailiaLLMGetBackendName(name: Array<String?>, index: Int): Int
 
         @JvmStatic
+        private external fun ailiaLLMGetQNNModelName(modelName: Array<String?>): Int
+        @JvmStatic
+        private external fun ailiaLLMGetBackendDeviceName(name: Array<String?>, index: Int): Int
+
+        @JvmStatic
         private external fun ailiaLLMCreate(handle: LongArray): Int
     }
 
     // Instance native methods
+    private external fun ailiaLLMSetBackend(handle: Long, index: Int): Int
     private external fun ailiaLLMOpenModelFileA(handle: Long, path: String, nCtx: Int): Int
+    private external fun ailiaLLMGetErrorDetail(handle: Long): String
     private external fun ailiaLLMGetContextSize(handle: Long, size: IntArray): Int
     private external fun ailiaLLMSetSamplingParams(handle: Long, topK: Int, topP: Float, temp: Float, seed: Int): Int
     private external fun ailiaLLMSetThinking(handle: Long, enable: Int): Int
+    private external fun ailiaLLMSetPromptJson(handle: Long, messagesJson: ByteArray): Int
+    private external fun ailiaLLMGetResponseJsonSize(handle: Long, size: IntArray): Int
+    private external fun ailiaLLMGetResponseJson(handle: Long, buffer: ByteArray, size: Int): Int
     private external fun ailiaLLMSetPrompt(handle: Long, messages: Array<AiliaLLMChatMessage>, messageCount: Int): Int
+    private external fun ailiaLLMSetTools(handle: Long, toolsJson: String?): Int
     private external fun ailiaLLMGenerate(handle: Long, done: IntArray): Int
     private external fun ailiaLLMGetDeltaTextSize(handle: Long, size: IntArray): Int
     private external fun ailiaLLMGetDeltaText(handle: Long, buffer: ByteArray, bufSize: Int): Int
