@@ -17,6 +17,9 @@ class AiliaLLM : Closeable {
     private var promptSet = false
     private var multimodalProjectorLoaded = false
 
+    /** Detail of the last native error; valid until the next native operation. */
+    fun getErrorDetail(): String = ailiaLLMGetErrorDetail(nativeHandle)
+
     init {
         val handleArray = LongArray(1)
         val status = ailiaLLMCreate(handleArray)
@@ -24,6 +27,18 @@ class AiliaLLM : Closeable {
             throw RuntimeException("Failed to create AiliaLLM instance. Status: $status")
         }
         nativeHandle = handleArray[0]
+    }
+
+    /** Selects a backend returned by [getBackendCount] and [getBackendName].
+     * Must be called before [openModelFile]. HTP (QNN) accepts only .qnn;
+     * explicitly selected CPU/GPU backends reject .qnn. Without a selection,
+     * the model format determines the backend.
+     */
+    fun setBackend(index: Int) {
+        val status = ailiaLLMSetBackend(nativeHandle, index)
+        if (status != AILIA_LLM_STATUS_SUCCESS) {
+            throw RuntimeException("Failed to set backend $index. Status: $status")
+        }
     }
 
     /**
@@ -143,7 +158,7 @@ class AiliaLLM : Closeable {
     /**
      * Sets the tool (function) definitions for tool use (function calling).
      * The tools are rendered into the prompt through the chat template on the next
-     * setPrompt call, the output is constrained to the tool call syntax, and the
+     * setPromptJson call, the output is constrained to the tool call syntax, and the
      * buffered output can be retrieved with getResponseJson().
      *
      * While tools are set, setPrompt fails with INVALID_STATE. Use setPromptJson
@@ -165,7 +180,8 @@ class AiliaLLM : Closeable {
     }
 
     /** Sets structured history; required with tools. User content arrays accept
-     * text and image/audio parts with file_path or base64 data. Load a projector for media.
+     * text and image or audio parts with file_path or base64 data. Load a
+     * matching projector for media. Submit image and audio in separate prompts.
      */
     fun setPromptJson(messagesJson: String) {
         checkModelLoaded()
@@ -265,14 +281,9 @@ class AiliaLLM : Closeable {
      * @param path The path to a GGUF projector or a QNN (-mmproj.qnn) encoder package
      * @throws RuntimeException if the operation fails or model not loaded
      */
-    fun openMultimodalProjectorFile(path: String, contextBinaryPath: String? = null) {
+    fun openMultimodalProjectorFile(path: String) {
         checkModelLoaded()
-        val status = if (contextBinaryPath == null) {
-            ailiaLLMOpenMultimodalProjectorFileA(nativeHandle, path)
-        } else {
-            ailiaLLMOpenMultimodalProjectorFileWithContextBinaryA(
-                nativeHandle, path, contextBinaryPath)
-        }
+        val status = ailiaLLMOpenMultimodalProjectorFileA(nativeHandle, path)
         if (status != AILIA_LLM_STATUS_SUCCESS) {
             throw RuntimeException("Failed to open multimodal projector file: $path. Status: $status")
         }
@@ -376,7 +387,8 @@ class AiliaLLM : Closeable {
         }
 
         /**
-         * Gets the number of available backends (CPU, GPU).
+         * Gets the number of available backends (GPU, CPU, HTP (QNN)).
+         * HTP appears only when a compatible QNN runtime is available.
          *
          * @return The number of backends
          * @throws RuntimeException if the operation fails
@@ -411,6 +423,10 @@ class AiliaLLM : Closeable {
         /**
          * Gets the canonical QNN model name for this device, such as "sm8475".
          * The compiler emits `<name>.qnn` and `<name>-mmproj.qnn`.
+         * Distributed filenames may include a model prefix; select matching
+         * text and projector packages for the same SoC and model.
+         * When the QNN runtime libraries are bundled in the APK's native library
+         * directory, no QNN or ADSP library-path environment variable is required.
          */
         @JvmStatic
         fun getQNNModelName(): String {
@@ -420,6 +436,16 @@ class AiliaLLM : Closeable {
                 throw RuntimeException("Failed to get QNN model name. Status: $status")
             }
             return modelName[0] ?: throw RuntimeException("QNN model name is null")
+        }
+
+        @JvmStatic
+        fun getBackendDeviceName(index: Int): String {
+            val name = arrayOfNulls<String>(1)
+            val status = ailiaLLMGetBackendDeviceName(name, index)
+            if (status != AILIA_LLM_STATUS_SUCCESS) {
+                throw RuntimeException("Failed to get backend device name. Status: $status")
+            }
+            return name[0] ?: throw RuntimeException("Backend device name is null")
         }
 
         // Native methods - called directly from Kotlin
@@ -434,13 +460,17 @@ class AiliaLLM : Closeable {
 
         @JvmStatic
         private external fun ailiaLLMGetQNNModelName(modelName: Array<String?>): Int
+        @JvmStatic
+        private external fun ailiaLLMGetBackendDeviceName(name: Array<String?>, index: Int): Int
 
         @JvmStatic
         private external fun ailiaLLMCreate(handle: LongArray): Int
     }
 
     // Instance native methods
+    private external fun ailiaLLMSetBackend(handle: Long, index: Int): Int
     private external fun ailiaLLMOpenModelFileA(handle: Long, path: String, nCtx: Int): Int
+    private external fun ailiaLLMGetErrorDetail(handle: Long): String
     private external fun ailiaLLMGetContextSize(handle: Long, size: IntArray): Int
     private external fun ailiaLLMSetSamplingParams(handle: Long, topK: Int, topP: Float, temp: Float, seed: Int): Int
     private external fun ailiaLLMSetThinking(handle: Long, enable: Int): Int
@@ -456,8 +486,6 @@ class AiliaLLM : Closeable {
     private external fun ailiaLLMGetPromptTokenCount(handle: Long, count: IntArray): Int
     private external fun ailiaLLMDestroy(handle: Long)
     private external fun ailiaLLMOpenMultimodalProjectorFileA(handle: Long, path: String): Int
-    private external fun ailiaLLMOpenMultimodalProjectorFileWithContextBinaryA(
-        handle: Long, path: String, contextBinaryPath: String): Int
     private external fun ailiaLLMGetMultimodalCapabilities(handle: Long, visionSupport: IntArray, audioSupport: IntArray): Int
     private external fun ailiaLLMSetMultimodalPrompt(handle: Long, messages: Array<AiliaLLMMultimodalChatMessage>, messageCount: Int): Int
 }
