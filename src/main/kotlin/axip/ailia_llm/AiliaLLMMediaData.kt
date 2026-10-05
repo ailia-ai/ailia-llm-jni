@@ -4,16 +4,16 @@ package axip.ailia_llm
  * Represents media data (image or audio) for multimodal LLM processing.
  * Corresponds to the AILIALLMMediaData C structure.
  *
- * @property mediaType Media type: "image" or "audio" (audio is reserved for future use)
- * @property filePath Path to the media file (UTF-8)
- * @property data Raw media data (currently unsupported, reserved for future use)
- * @property dataSize Size of the raw data
- * @property width Width for images (pixels), sample count for audio
- * @property height Height for images (pixels), unused for audio (set to 0)
+ * @property mediaType Media type: "image" or "audio"
+ * @property filePath Path to the media file, or null when data is supplied
+ * @property data Encoded image/audio file bytes, or null when filePath is supplied
+ * @property dataSize Legacy size hint; native code uses data.size when data is supplied
+ * @property width Width for raw RGB images; set to 0 for encoded image/audio data
+ * @property height Height for raw RGB images; set to 0 for encoded image/audio data
  */
 data class AiliaLLMMediaData @JvmOverloads constructor(
     @JvmField val mediaType: String,
-    @JvmField val filePath: String,
+    @JvmField val filePath: String? = null,
     @JvmField val width: Int = 0,
     @JvmField val height: Int = 0,
     @JvmField val data: ByteArray? = null,
@@ -43,7 +43,7 @@ data class AiliaLLMMediaData @JvmOverloads constructor(
 
     override fun hashCode(): Int {
         var result = mediaType.hashCode()
-        result = 31 * result + filePath.hashCode()
+        result = 31 * result + (filePath?.hashCode() ?: 0)
         result = 31 * result + width
         result = 31 * result + height
         result = 31 * result + (data?.contentHashCode() ?: 0)
