@@ -59,6 +59,23 @@ class AiliaLLM : Closeable {
 
 
     /**
+     * Open an MTP assistant and enable draft/target verification decoding.
+     * Call once after [openModelFile] and before setting a prompt.
+     * Supports text generation with CPU/GPU Gemma 4 GGUF and QNN models.
+     * @param nDraft Number of draft tokens. Must be at least 1; QNN supports up to 3.
+     * @param path Matching Gemma 4 assistant GGUF, or assistant .qnn for a QNN target
+     * @throws RuntimeException if the model is not loaded or the operation fails
+     */
+    fun openMtpModel(path: String, nDraft: Int) {
+        checkModelLoaded()
+        require(nDraft > 0) { "nDraft must be positive" }
+        val status = ailiaLLMOpenMtpModel(nativeHandle, path, nDraft)
+        if (status != AILIA_LLM_STATUS_SUCCESS) {
+            throw RuntimeException("Failed to open MTP model: $path. Status: $status")
+        }
+    }
+
+    /**
      * Gets the context size of the model.
      *
      * @return The context size
@@ -470,6 +487,7 @@ class AiliaLLM : Closeable {
     // Instance native methods
     private external fun ailiaLLMSetBackend(handle: Long, index: Int): Int
     private external fun ailiaLLMOpenModelFileA(handle: Long, path: String, nCtx: Int): Int
+    private external fun ailiaLLMOpenMtpModel(handle: Long, path: String, nDraft: Int): Int
     private external fun ailiaLLMGetErrorDetail(handle: Long): String
     private external fun ailiaLLMGetContextSize(handle: Long, size: IntArray): Int
     private external fun ailiaLLMSetSamplingParams(handle: Long, topK: Int, topP: Float, temp: Float, seed: Int): Int
