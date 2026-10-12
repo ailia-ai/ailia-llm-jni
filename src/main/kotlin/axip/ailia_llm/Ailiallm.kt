@@ -29,6 +29,25 @@ class AiliaLLM : Closeable {
         nativeHandle = handleArray[0]
     }
 
+    /**
+     * Sets the CPU thread count before [openModelFile].
+     * The default is 0 when this method is not called. On Android, automatic
+     * selection uses performance (big/prime) cores, falling back to the existing
+     * core-count heuristic when topology is unavailable.
+     * Target decode/prefill, assistant and VLM/ALM CPU inference threads share this value.
+     *
+     * @param nThreads Thread count (0 selects automatically)
+     * @throws IllegalArgumentException if nThreads is negative
+     * @throws RuntimeException if the model is already open or the operation fails
+     */
+    fun setNumThreads(nThreads: Int) {
+        require(nThreads >= 0) { "nThreads must be nonnegative" }
+        val status = ailiaLLMSetNumThreads(nativeHandle, nThreads)
+        if (status != AILIA_LLM_STATUS_SUCCESS) {
+            throw RuntimeException("Failed to set thread count. Status: $status")
+        }
+    }
+
     /** Selects a backend returned by [getBackendCount] and [getBackendName].
      * Must be called before [openModelFile]. HTP (QNN) accepts only .qnn;
      * explicitly selected CPU/GPU backends reject .qnn. Without a selection,
@@ -69,7 +88,7 @@ class AiliaLLM : Closeable {
     fun openMtpModel(path: String, nDraft: Int) {
         checkModelLoaded()
         require(nDraft > 0) { "nDraft must be positive" }
-        val status = ailiaLLMOpenMtpModel(nativeHandle, path, nDraft)
+        val status = ailiaLLMOpenMtpModelFileA(nativeHandle, path, nDraft)
         if (status != AILIA_LLM_STATUS_SUCCESS) {
             throw RuntimeException("Failed to open MTP model: $path. Status: $status")
         }
@@ -485,9 +504,10 @@ class AiliaLLM : Closeable {
     }
 
     // Instance native methods
+    private external fun ailiaLLMSetNumThreads(handle: Long, nThreads: Int): Int
     private external fun ailiaLLMSetBackend(handle: Long, index: Int): Int
     private external fun ailiaLLMOpenModelFileA(handle: Long, path: String, nCtx: Int): Int
-    private external fun ailiaLLMOpenMtpModel(handle: Long, path: String, nDraft: Int): Int
+    private external fun ailiaLLMOpenMtpModelFileA(handle: Long, path: String, nDraft: Int): Int
     private external fun ailiaLLMGetErrorDetail(handle: Long): String
     private external fun ailiaLLMGetContextSize(handle: Long, size: IntArray): Int
     private external fun ailiaLLMSetSamplingParams(handle: Long, topK: Int, topP: Float, temp: Float, seed: Int): Int
