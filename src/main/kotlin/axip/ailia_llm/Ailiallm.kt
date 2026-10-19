@@ -7,6 +7,9 @@ import java.io.Closeable
  * Provides Large Language Model inference capabilities.
  *
  * Calls JNI directly from Kotlin without going through Java wrappers.
+ *
+ * When using QNN, call [destroy] or [close] on the same thread that constructed this instance.
+ * For QNN, release resources explicitly on that thread; do not rely on garbage collection.
  */
 class AiliaLLM : Closeable {
     // Native pointer to AILIALLM instance
@@ -348,6 +351,11 @@ class AiliaLLM : Closeable {
 
     /**
      * Destroys the AiliaLLM instance and releases resources.
+     *
+     * When using QNN, this method must be called on the same thread that constructed this instance.
+     * When using QNN, moving only resource release to another thread, such as the
+     * UI thread, may cause `QnnDevice_create failed: code 14001` when QNN is
+     * subsequently used on a different thread.
      */
     fun destroy() {
         if (nativeHandle != 0L) {
@@ -361,13 +369,16 @@ class AiliaLLM : Closeable {
 
     /**
      * Implements Closeable for use with use { } blocks.
+     * When using QNN, this method must be called on the same thread that constructed this instance, as with [destroy].
      */
     override fun close() {
         destroy()
     }
 
     /**
-     * Ensures the native resources are released when the object is garbage collected.
+     * Attempts to release native resources when the object is garbage collected.
+     * Finalization does not guarantee execution on the thread that constructed this instance.
+     * When using QNN, call [destroy] or [close] explicitly on that thread before garbage collection.
      */
     @Suppress("deprecation")
     protected fun finalize() {
