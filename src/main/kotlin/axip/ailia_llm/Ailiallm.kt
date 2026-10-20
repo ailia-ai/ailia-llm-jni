@@ -7,6 +7,9 @@ import java.io.Closeable
  * Provides Large Language Model inference capabilities.
  *
  * Calls JNI directly from Kotlin without going through Java wrappers.
+ *
+ * When using QNN, call [destroy] or [close] on the same thread that constructed this instance.
+ * For QNN, release resources explicitly on that thread; do not rely on garbage collection.
  */
 class AiliaLLM : Closeable {
     // Native pointer to AILIALLM instance
@@ -27,6 +30,25 @@ class AiliaLLM : Closeable {
             throw RuntimeException("Failed to create AiliaLLM instance. Status: $status")
         }
         nativeHandle = handleArray[0]
+    }
+
+    /**
+     * Sets the CPU thread count before [openModelFile].
+     * The default is 0 when this method is not called. On Android, automatic
+     * selection uses performance (big/prime) cores, falling back to the existing
+     * core-count heuristic when topology is unavailable.
+     * Target decode/prefill, assistant and VLM/ALM CPU inference threads share this value.
+     *
+     * @param nThreads Thread count (0 selects automatically)
+     * @throws IllegalArgumentException if nThreads is negative
+     * @throws RuntimeException if the model is already open or the operation fails
+     */
+    fun setNumThreads(nThreads: Int) {
+        require(nThreads >= 0) { "nThreads must be nonnegative" }
+        val status = ailiaLLMSetNumThreads(nativeHandle, nThreads)
+        if (status != AILIA_LLM_STATUS_SUCCESS) {
+            throw RuntimeException("Failed to set thread count. Status: $status")
+        }
     }
 
     /** Selects a backend returned by [getBackendCount] and [getBackendName].
@@ -57,6 +79,23 @@ class AiliaLLM : Closeable {
         promptSet = false // Reset prompt state when loading a new model
     }
 
+
+    /**
+     * Open an MTP assistant and enable draft/target verification decoding.
+     * Call once after [openModelFile] and before setting a prompt.
+     * Supports text generation with CPU/GPU Gemma 4 GGUF and QNN models.
+     * @param nDraft Number of draft tokens. Must be at least 1; QNN supports up to 3.
+     * @param path Matching Gemma 4 assistant GGUF, or assistant .qnn for a QNN target
+     * @throws RuntimeException if the model is not loaded or the operation fails
+     */
+    fun openMtpModel(path: String, nDraft: Int) {
+        checkModelLoaded()
+        require(nDraft > 0) { "nDraft must be positive" }
+        val status = ailiaLLMOpenMtpModelFileA(nativeHandle, path, nDraft)
+        if (status != AILIA_LLM_STATUS_SUCCESS) {
+            throw RuntimeException("Failed to open MTP model: $path. Status: $status")
+        }
+    }
 
     /**
      * Gets the context size of the model.
@@ -312,6 +351,11 @@ class AiliaLLM : Closeable {
 
     /**
      * Destroys the AiliaLLM instance and releases resources.
+     *
+     * When using QNN, this method must be called on the same thread that constructed this instance.
+     * When using QNN, moving only resource release to another thread, such as the
+     * UI thread, may cause `QnnDevice_create failed: code 14001` when QNN is
+     * subsequently used on a different thread.
      */
     fun destroy() {
         if (nativeHandle != 0L) {
@@ -325,13 +369,16 @@ class AiliaLLM : Closeable {
 
     /**
      * Implements Closeable for use with use { } blocks.
+     * When using QNN, this method must be called on the same thread that constructed this instance, as with [destroy].
      */
     override fun close() {
         destroy()
     }
 
     /**
-     * Ensures the native resources are released when the object is garbage collected.
+     * Attempts to release native resources when the object is garbage collected.
+     * Finalization does not guarantee execution on the thread that constructed this instance.
+     * When using QNN, call [destroy] or [close] explicitly on that thread before garbage collection.
      */
     @Suppress("deprecation")
     protected fun finalize() {
@@ -468,8 +515,10 @@ class AiliaLLM : Closeable {
     }
 
     // Instance native methods
+    private external fun ailiaLLMSetNumThreads(handle: Long, nThreads: Int): Int
     private external fun ailiaLLMSetBackend(handle: Long, index: Int): Int
     private external fun ailiaLLMOpenModelFileA(handle: Long, path: String, nCtx: Int): Int
+    private external fun ailiaLLMOpenMtpModelFileA(handle: Long, path: String, nDraft: Int): Int
     private external fun ailiaLLMGetErrorDetail(handle: Long): String
     private external fun ailiaLLMGetContextSize(handle: Long, size: IntArray): Int
     private external fun ailiaLLMSetSamplingParams(handle: Long, topK: Int, topP: Float, temp: Float, seed: Int): Int
