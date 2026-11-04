@@ -51,6 +51,23 @@ class AiliaLLM : Closeable {
         }
     }
 
+    /**
+     * Configures QNN graph switching before [openModelFile]; disabled by default.
+     * Applies to LLM, MTP, vision and audio graphs. Reduces context reloads and
+     * memory, but SDK lazy loading can increase first-execution or generation latency.
+     * Disabling succeeds even when QNN is unavailable. Enabling in that environment
+     * throws with AILIA_LLM_STATUS_UNIMPLEMENTED.
+     *
+     * @param enable true to enable graph switching, false to disable (default: disabled)
+     * @throws RuntimeException if the model is already open or the operation fails
+     */
+    fun setQNNGraphSwitching(enable: Boolean) {
+        val status = ailiaLLMSetQNNGraphSwitching(nativeHandle, if (enable) 1 else 0)
+        if (status != AILIA_LLM_STATUS_SUCCESS) {
+            throw RuntimeException("Failed to set QNN graph switching. Status: $status")
+        }
+    }
+
     /** Selects a backend returned by [getBackendCount] and [getBackendName].
      * Must be called before [openModelFile]. HTP (QNN) accepts only .qnn;
      * explicitly selected CPU/GPU backends reject .qnn. Without a selection,
@@ -516,6 +533,7 @@ class AiliaLLM : Closeable {
 
     // Instance native methods
     private external fun ailiaLLMSetNumThreads(handle: Long, nThreads: Int): Int
+    private external fun ailiaLLMSetQNNGraphSwitching(handle: Long, enabled: Int): Int
     private external fun ailiaLLMSetBackend(handle: Long, index: Int): Int
     private external fun ailiaLLMOpenModelFileA(handle: Long, path: String, nCtx: Int): Int
     private external fun ailiaLLMOpenMtpModelFileA(handle: Long, path: String, nDraft: Int): Int
