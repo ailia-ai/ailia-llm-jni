@@ -6,7 +6,8 @@ package axip.ailia_llm
  *
  * @property mediaType Media type: "image" or "audio"
  * @property filePath Path to the media file, or null when data is supplied
- * @property data Encoded image/audio file bytes, or null when filePath is supplied
+ * @property data Encoded image/audio file bytes, or raw RGB pixels (width * height * 3 bytes)
+ *   when width and height are set; null when filePath is supplied
  * @property dataSize Legacy size hint; native code uses data.size when data is supplied
  * @property width Width for raw RGB images; set to 0 for encoded image/audio data
  * @property height Height for raw RGB images; set to 0 for encoded image/audio data
